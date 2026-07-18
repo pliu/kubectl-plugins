@@ -56,10 +56,9 @@ func Run(ctx context.Context, config Config, stdin io.Reader, execInfo string, s
 	}
 	if hit {
 		claims, err := jwt.Parse(entry.IDToken)
-		if err != nil || !claims.ExpiresAt.Equal(entry.ExpiresAt) {
-			return errors.New("token cache entry does not contain a valid id_token and matching expiry")
+		if err == nil && claims.ExpiresAt.Equal(entry.ExpiresAt) {
+			return execcred.Write(stdout, entry.IDToken, entry.ExpiresAt)
 		}
-		return execcred.Write(stdout, entry.IDToken, entry.ExpiresAt)
 	}
 
 	flow, err := keycloak.New(keycloak.Config{

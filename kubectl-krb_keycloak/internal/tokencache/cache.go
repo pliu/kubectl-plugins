@@ -43,7 +43,9 @@ type Cache struct {
 	Clock Clock
 }
 
-// Get returns a valid cached entry. A missing or expired entry is a cache miss, not an error.
+// Get returns a valid cached entry. Missing, malformed, incomplete, and expired entries are cache
+// misses so a successful authentication can replace them. Filesystem and permission failures are
+// returned because silently bypassing them could hide an unsafe cache configuration.
 func (c Cache) Get(key string) (Entry, bool, error) {
 	if err := validateKey(key); err != nil {
 		return Entry{}, false, err
@@ -71,14 +73,14 @@ func (c Cache) Get(key string) (Entry, bool, error) {
 	var entry Entry
 	decoder := json.NewDecoder(io.LimitReader(f, 2<<20))
 	if err := decoder.Decode(&entry); err != nil {
-		return Entry{}, false, fmt.Errorf("decode token cache: %w", err)
+		return Entry{}, false, nil
 	}
 	var trailing json.RawMessage
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return Entry{}, false, errors.New("decode token cache: unexpected trailing JSON")
+		return Entry{}, false, nil
 	}
 	if entry.IDToken == "" || entry.ExpiresAt.IsZero() {
-		return Entry{}, false, errors.New("token cache entry is missing required fields")
+		return Entry{}, false, nil
 	}
 	now := time.Now()
 	if c.Clock != nil {
@@ -131,7 +133,7 @@ func (c Cache) Put(key string, entry Entry) error {
 		return fmt.Errorf("close token cache: %w", err)
 	}
 	path := filepath.Join(c.Dir, key+".json")
-	if err := replaceFile(temporaryPath, path); err != nil {
+	if err := os.Rename(temporaryPath, path); err != nil {
 		return fmt.Errorf("replace token cache: %w", err)
 	}
 	committed = true

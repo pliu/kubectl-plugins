@@ -4,7 +4,6 @@ go 1.25.0
 
 require (
 	github.com/jcmturner/gokrb5/v8 v8.4.4
-	golang.org/x/sys v0.38.0
 	k8s.io/apimachinery v0.35.6
 	k8s.io/client-go v0.35.6
 )

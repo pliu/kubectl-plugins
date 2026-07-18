@@ -54,16 +54,24 @@ func TestCacheMissAndExpiry(t *testing.T) {
 	}
 }
 
-func TestCacheRejectsCorruptionAndUnsafePermissions(t *testing.T) {
+func TestCacheTreatsCorruptionAsMissAndRejectsUnsafePermissions(t *testing.T) {
 	dir := t.TempDir()
 	cache := Cache{Dir: dir}
 	key := Key(Identity{Principal: "alice"})
 	path := filepath.Join(dir, key+".json")
-	if err := os.WriteFile(path, []byte("not-json"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := cache.Get(key); err == nil {
-		t.Fatal("Get() corrupted error = nil")
+	for name, contents := range map[string]string{
+		"invalid JSON":     "not-json",
+		"missing fields":   `{}`,
+		"trailing content": `{"id_token":"x","expires_at":"2030-01-01T00:00:00Z"} {}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, ok, err := cache.Get(key); err != nil || ok {
+				t.Fatalf("Get() corrupted entry ok = %v, error = %v; want miss", ok, err)
+			}
+		})
 	}
 	if runtime.GOOS == "windows" {
 		return

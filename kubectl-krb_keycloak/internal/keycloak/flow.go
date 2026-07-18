@@ -193,7 +193,7 @@ func (f *Flow) exchange(ctx context.Context, code, verifier string) (string, err
 		return "", errors.New("Keycloak token endpoint returned invalid JSON")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 || payload.Error != "" {
-		detail := oneLine(strings.TrimSpace(strings.Join([]string{payload.Error, payload.ErrorDescription}, ": ")))
+		detail := errorDetail(payload.Error, payload.ErrorDescription)
 		if detail == "" {
 			return "", fmt.Errorf("Keycloak token exchange returned HTTP %d", response.StatusCode)
 		}
@@ -212,7 +212,7 @@ func authorizationCode(target *url.URL, expectedState string) (string, error) {
 		return "", errors.New("Keycloak authorization state mismatch")
 	}
 	if oauthError := query.Get("error"); oauthError != "" {
-		detail := oneLine(strings.TrimSpace(strings.Join([]string{oauthError, query.Get("error_description")}, ": ")))
+		detail := errorDetail(oauthError, query.Get("error_description"))
 		return "", fmt.Errorf("Keycloak authorization rejected SPNEGO login: %s", detail)
 	}
 	code := query.Get("code")
@@ -299,4 +299,14 @@ func safeURL(value *url.URL) string {
 
 func oneLine(value string) string {
 	return strings.Join(strings.Fields(value), " ")
+}
+
+func errorDetail(parts ...string) string {
+	nonEmpty := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part = oneLine(part); part != "" {
+			nonEmpty = append(nonEmpty, part)
+		}
+	}
+	return strings.Join(nonEmpty, ": ")
 }

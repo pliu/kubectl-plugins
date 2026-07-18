@@ -3,6 +3,7 @@ package execcred
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -43,6 +44,13 @@ func TestReadRejectsInvalidInput(t *testing.T) {
 	}
 }
 
+func TestReadFailsFastForTerminalStdin(t *testing.T) {
+	t.Parallel()
+	if _, err := Read(terminalReader{}, ""); err == nil || !strings.Contains(err.Error(), "pipe an ExecCredential") {
+		t.Fatalf("Read() terminal error = %v", err)
+	}
+}
+
 func TestWrite(t *testing.T) {
 	t.Parallel()
 	var output bytes.Buffer
@@ -61,3 +69,22 @@ func TestWrite(t *testing.T) {
 		t.Errorf("expiration = %v, want %v", got.Status.ExpirationTimestamp.Time, want)
 	}
 }
+
+type terminalReader struct{}
+
+func (terminalReader) Read([]byte) (int, error) {
+	panic("terminal input must not be read")
+}
+
+func (terminalReader) Stat() (os.FileInfo, error) {
+	return terminalInfo{}, nil
+}
+
+type terminalInfo struct{}
+
+func (terminalInfo) Name() string       { return "terminal" }
+func (terminalInfo) Size() int64        { return 0 }
+func (terminalInfo) Mode() os.FileMode  { return os.ModeCharDevice }
+func (terminalInfo) ModTime() time.Time { return time.Time{} }
+func (terminalInfo) IsDir() bool        { return false }
+func (terminalInfo) Sys() any           { return nil }

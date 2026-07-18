@@ -25,6 +25,8 @@ func Read(stdin io.Reader, execInfo string) (*clientauthenticationv1.ExecCredent
 	var source io.Reader = stdin
 	if strings.TrimSpace(execInfo) != "" {
 		source = strings.NewReader(execInfo)
+	} else if isTerminal(stdin) {
+		return nil, errors.New("KUBERNETES_EXEC_INFO was not provided; pipe an ExecCredential JSON request on stdin for manual use")
 	}
 	decoder := json.NewDecoder(source)
 	var request clientauthenticationv1.ExecCredential
@@ -45,6 +47,17 @@ func Read(stdin io.Reader, execInfo string) (*clientauthenticationv1.ExecCredent
 		return nil, fmt.Errorf("unsupported credential kind %q; expected %s", request.Kind, Kind)
 	}
 	return &request, nil
+}
+
+func isTerminal(reader io.Reader) bool {
+	statter, ok := reader.(interface {
+		Stat() (os.FileInfo, error)
+	})
+	if !ok {
+		return false
+	}
+	info, err := statter.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
 // ReadFromEnvironment reads the request from stdin and KUBERNETES_EXEC_INFO.

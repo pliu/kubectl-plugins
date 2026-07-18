@@ -126,6 +126,13 @@ func TestAuthenticateFlowErrors(t *testing.T) {
 			},
 			want: "invalid_grant: expired code",
 		},
+		"token rejected without error payload": {
+			responses: []scriptedResponse{
+				{status: http.StatusFound, location: "http://localhost:8000?code=x&state=" + state},
+				{status: http.StatusServiceUnavailable, body: `{}`},
+			},
+			want: "returned HTTP 503",
+		},
 		"missing id token": {
 			responses: []scriptedResponse{
 				{status: http.StatusFound, location: "http://localhost:8000?code=x&state=" + state},
@@ -153,6 +160,23 @@ func TestAuthenticateFlowErrors(t *testing.T) {
 				t.Fatalf("Authenticate() error = %v, want substring %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestErrorDetailOmitsEmptyParts(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		parts []string
+		want  string
+	}{
+		{[]string{"invalid_grant", "expired code"}, "invalid_grant: expired code"},
+		{[]string{"invalid_grant", ""}, "invalid_grant"},
+		{[]string{"", ""}, ""},
+		{[]string{" access_denied ", "line one\nline two"}, "access_denied: line one line two"},
+	} {
+		if got := errorDetail(test.parts...); got != test.want {
+			t.Errorf("errorDetail(%q) = %q, want %q", test.parts, got, test.want)
+		}
 	}
 }
 
