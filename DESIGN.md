@@ -1,6 +1,6 @@
 # Design: `kubectl-krb-keycloak` — Kerberos/SPNEGO → Keycloak OIDC exec credential plugin
 
-Status: **Proposed** (this document is the first commit; implementation follows once the design is agreed).
+Status: **Proposed** — first review round incorporated; decisions recorded inline in §5.
 
 ## 1. Overview
 
@@ -69,7 +69,7 @@ shared build/release pipeline) so later plugins slot in without restructuring.
 | `internal/tokencache` | Load/store the cached `id_token` keyed by SHA-256 of `issuer\|client_id\|scope\|principal`; validity check `now < exp − skew`; atomic writes (temp file + rename), file mode `0600`, dir `0700`. | `Clock` (injectable `func() time.Time`) for tests |
 | `internal/jwt` | Parse a compact JWT *without signature verification*: structural validation (three base64url segments, JSON payload) and extraction of `exp` (and `sub`/`preferred_username` for diagnostics only). | — |
 | `internal/keycloak` | Build the authorization request (`response_type=code`, `client_id`, `redirect_uri`, `scope`, random `state`, PKCE S256 `code_challenge`); walk the redirect chain; verify `state`; extract `code`; exchange it at the token endpoint with `code_verifier`; surface Keycloak error payloads verbatim in errors. | `Doer` (`Do(*http.Request) (*http.Response, error)`) — the SPNEGO client is injected behind this, so the whole flow is testable against `httptest` servers |
-| `internal/krb` | Construct the gokrb5 client from ccache (`--ccache` / `KRB5CCNAME` / OS default) or keytab (`--keytab` + `--realm`); load `krb5.conf` (`--krb5-conf` / `KRB5_CONFIG` / `/etc/krb5.conf`); wrap it in a `spnego.Client` that satisfies `Doer`; report the authenticated principal (feeds the cache key). | `CredentialSource` abstraction so the Keycloak flow never touches gokrb5 types directly |
+| `internal/krb` | Construct the gokrb5 client from one of two first-class credential sources: the ccache (`--ccache` / `KRB5CCNAME` / OS default), or a keytab (`--keytab` + `--principal` + `--realm`), in which case the plugin performs the AS exchange itself and needs no prior `kinit`/ccache; load `krb5.conf` (`--krb5-conf` / `KRB5_CONFIG` / `/etc/krb5.conf`); wrap it in a `spnego.Client` that satisfies `Doer`; report the authenticated principal (feeds the cache key). | `CredentialSource` abstraction so the Keycloak flow never touches gokrb5 types directly |
 | `cmd/kubectl-krb_keycloak` | Flag/env parsing, dependency wiring, exit codes. Thin — no logic worth unit-testing beyond config resolution. | — |
 
 ### 2.2 Data flow (cache miss)
@@ -231,31 +231,55 @@ Answers to these would most change the design. Each has an assumed answer so wor
    *Assumed:* single root module (`github.com/pliu/kubectl-plugins`), `cmd/<plugin>` +
    `internal/<plugin>/`. One `go.sum`, one CI pipeline, easy code sharing; per-plugin modules can
    be split out later if dependency sets diverge badly.
+   *Decision (PR review):* single root module. Per-plugin modules would give each plugin an
+   independent dependency set (a CVE bump or breaking upgrade in one plugin's deps wouldn't touch
+   the others) and independently taggable versions, at the cost of a go.work setup, N `go.sum`
+   files, and friction sharing `internal/` code. Those benefits only pay off once plugins have
+   large, divergent dependency trees; splitting later is mechanical, so we start single-module.
 2. **Binary name** — exec credential plugins are invoked by client-go via kubeconfig, so the
    `kubectl-*` prefix (krew-style) isn't technically required. *Assumed:* `kubectl-krb_keycloak`
    anyway, for repo-wide naming consistency and future krew distribution; the kubeconfig `command`
    field doesn't care.
+   *Decision (PR review):* confirmed — `kubectl-krb_keycloak`.
 3. **Redirect URI handling** — is a never-bound `http://localhost:8000` acceptable to the Keycloak
    administrators, or must we support an OOB (`urn:ietf:wg:oauth:2.0:oob`) style URI? *Assumed:*
-   never-bound localhost is fine (we only need it registered as a valid redirect URI; nothing is
-   ever sent to it since we capture the `Location` header). `--redirect-uri` covers deployments
-   that prefer another value.
+   never-bound localhost is fine. The `redirect_uri` is a mandatory parameter of the OAuth
+   authorization-code grant: Keycloak refuses the auth request unless it exactly matches a URI
+   registered on the client, and the same value must be echoed in the token exchange. In a browser
+   flow the user agent would be redirected there to deliver the `code`; this plugin instead reads
+   the `code` straight out of the `Location` response header, so no server ever listens on the
+   URI — it exists purely to satisfy protocol validation. *Decision (PR review):* keep the
+   never-bound localhost default, configurable via `--redirect-uri`.
 4. **Local id_token verification** — should the plugin verify the JWT signature against the
    issuer's JWKS before returning/caching it? *Assumed:* no — the API server is the verifier of
    record, the token arrives over TLS from the issuer, and skipping JWKS keeps cache misses to
    exactly two HTTP round trips. We parse `exp` (and require structural JWT validity) only.
+   *Decision (PR review):* confirmed — no local verification.
 5. **macOS/Windows ccache support depth** — gokrb5 cannot read macOS `API:`/`KCM:` or Windows LSA
    ccaches. Is documenting the `KRB5CCNAME=FILE:` workaround acceptable for v1, or is native
    support (e.g. shelling out to `klist`/SSPI) required? *Assumed:* documentation is acceptable
    for v1; native macOS/Windows credential-store support is future work.
+   *Decision (PR review):* documentation-only is acceptable, and keytab mode is confirmed as a
+   first-class credential source alongside the ccache: `--keytab` (with `--principal`/`--realm`)
+   makes the plugin acquire its own TGT directly from the keytab, with no `kinit` or ccache
+   involved — the intended path for service accounts and non-file-ccache platforms.
 6. **Keycloak versions** — may we assume a modern (quarkus-era, ≥17) Keycloak where the issuer
    path is `/realms/<realm>` (no `/auth` prefix), treating the issuer URL as opaque either way?
-   *Assumed:* yes; since we build URLs by appending `/protocol/openid-connect/...` to the given
-   issuer, legacy `/auth/realms/<realm>` issuers work automatically.
+   *Assumed:* yes. The issuer URL is the base URL of the Keycloak realm (e.g.
+   `https://sso.example.com/realms/prod`) and serves two purposes: the plugin appends
+   `/protocol/openid-connect/auth` and `/protocol/openid-connect/token` to it to reach the two
+   endpoints it calls, and it must equal the `iss` claim Keycloak stamps into the id_token — the
+   same value configured on the API server (`--oidc-issuer-url`), or token validation fails
+   cluster-side. It is also part of the cache key, so tokens from different realms never collide.
 7. **ExecCredential apiVersion** — support only `client.authentication.k8s.io/v1`, or also
    `v1beta1` for older clusters/kubectl? *Assumed:* `v1` only (kubectl ≥1.24 defaults to it);
    the version-mismatch error will say exactly what to put in the kubeconfig stanza.
+   *Decision (PR review):* confirmed — `v1` only.
 8. **Reported expiry** — return the raw `exp` as `status.expirationTimestamp` and keep the skew
    internal to the cache, or report `exp − skew` to make client-go itself re-invoke early?
    *Assumed:* raw `exp` (honest value; client-go already refreshes on 401), with skew applied
-   only to our cache-validity check.
+   only to our cache-validity check. The skew is a safety margin on cache reads: a cached token is
+   treated as expired once `now ≥ exp − skew` (default 60 s, `--expiry-skew`), so the plugin never
+   hands out a token about to lapse mid-request — e.g. one that would die between kubectl reading
+   it and the API server validating it, or partway through a long watch. *Decision (PR review):*
+   report raw `exp`; skew stays internal to the cache.
