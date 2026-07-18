@@ -5,5 +5,6 @@ troubleshooting.
 
 ```sh
 make test
+make integration-test # requires Docker with Compose
 make build
 ```
