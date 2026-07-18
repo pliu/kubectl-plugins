@@ -1,6 +1,6 @@
 # Design: `kubectl-krb-keycloak` — Kerberos/SPNEGO → Keycloak OIDC exec credential plugin
 
-Status: **Proposed** — first review round incorporated; decisions recorded inline in §5.
+Status: **Implemented** — review and implementation decisions are recorded inline in §5.
 
 ## 1. Overview
 
@@ -37,9 +37,9 @@ harvesting `code` from its query string.
 
 ### Repository scope
 
-This repository (`kubectl-plugins`) will grow to hold multiple kubectl plugins. The layout below
-reserves shared space (`internal/` packages usable across plugins, one `cmd/` entry per plugin, a
-shared build/release pipeline) so later plugins slot in without restructuring.
+This repository (`kubectl-plugins`) will grow to hold multiple kubectl plugins. Each plugin owns a
+Go module, its internal packages, and its build targets so dependency and release lifecycles stay
+independent. A root Go workspace and Makefile provide local convenience targets.
 
 ## 2. Architecture
 
@@ -47,7 +47,7 @@ shared build/release pipeline) so later plugins slot in without restructuring.
 
 ```
                     ┌────────────────────────────────────────────────┐
- kubectl/client-go  │  cmd/kubectl-krb_keycloak (main)               │
+ kubectl/client-go  │  kubectl-krb_keycloak/cmd/... (main)           │
  ── stdin/env ────▶ │   flag/env config → wire deps → run            │
  ◀── stdout ─────── │                                                │
                     │  internal/execcred     ExecCredential I/O      │
@@ -65,12 +65,12 @@ shared build/release pipeline) so later plugins slot in without restructuring.
 
 | Package | Responsibility | Key interfaces |
 |---|---|---|
-| `internal/execcred` | Parse the `ExecCredential` request from stdin / `KUBERNETES_EXEC_INFO`; enforce `apiVersion`; write the response (`status.token`, `status.expirationTimestamp`) to stdout. Uses the official types from `k8s.io/client-go/pkg/apis/clientauthentication/v1`. | — |
-| `internal/tokencache` | Load/store the cached `id_token` keyed by SHA-256 of `issuer\|client_id\|scope\|principal`; validity check `now < exp − skew`; atomic writes (temp file + rename), file mode `0600`, dir `0700`. | `Clock` (injectable `func() time.Time`) for tests |
-| `internal/jwt` | Parse a compact JWT *without signature verification*: structural validation (three base64url segments, JSON payload) and extraction of `exp` (and `sub`/`preferred_username` for diagnostics only). | — |
-| `internal/keycloak` | Build the authorization request (`response_type=code`, `client_id`, `redirect_uri`, `scope`, random `state`, PKCE S256 `code_challenge`); walk the redirect chain; verify `state`; extract `code`; exchange it at the token endpoint with `code_verifier`; surface Keycloak error payloads verbatim in errors. | `Doer` (`Do(*http.Request) (*http.Response, error)`) — the SPNEGO client is injected behind this, so the whole flow is testable against `httptest` servers |
-| `internal/krb` | Construct the gokrb5 client from one of two first-class credential sources: the ccache (`--ccache` / `KRB5CCNAME` / OS default), or a keytab (`--keytab` + `--principal` + `--realm`), in which case the plugin performs the AS exchange itself and needs no prior `kinit`/ccache; load `krb5.conf` (`--krb5-conf` / `KRB5_CONFIG` / `/etc/krb5.conf`); wrap it in a `spnego.Client` that satisfies `Doer`; report the authenticated principal (feeds the cache key). | `CredentialSource` abstraction so the Keycloak flow never touches gokrb5 types directly |
-| `cmd/kubectl-krb_keycloak` | Flag/env parsing, dependency wiring, exit codes. Thin — no logic worth unit-testing beyond config resolution. | — |
+| `kubectl-krb_keycloak/internal/execcred` | Parse the `ExecCredential` request from stdin / `KUBERNETES_EXEC_INFO`; enforce `apiVersion`; write the response (`status.token`, `status.expirationTimestamp`) to stdout. Uses the official types from `k8s.io/client-go/pkg/apis/clientauthentication/v1`. | — |
+| `kubectl-krb_keycloak/internal/tokencache` | Load/store the cached `id_token` keyed by SHA-256 of `issuer\|client_id\|scope\|principal`; validity check `now < exp − skew`; atomic writes (temp file + rename), file mode `0600`, dir `0700`. | `Clock` (injectable `func() time.Time`) for tests |
+| `kubectl-krb_keycloak/internal/jwt` | Parse a compact JWT *without signature verification*: structural validation (three base64url segments, JSON payload) and extraction of `exp` (and `sub`/`preferred_username` for diagnostics only). | — |
+| `kubectl-krb_keycloak/internal/keycloak` | Build the authorization request (`response_type=code`, `client_id`, `redirect_uri`, `scope`, random `state`, PKCE S256 `code_challenge`); walk the redirect chain; verify `state`; extract `code`; exchange it at the token endpoint with `code_verifier`; surface Keycloak error payloads verbatim in errors. | `Doer` (`Do(*http.Request) (*http.Response, error)`) — the SPNEGO client is injected behind this, so the whole flow is testable against `httptest` servers |
+| `kubectl-krb_keycloak/internal/krb` | Construct the gokrb5 client from a file ccache or keytab, load `krb5.conf`, answer HTTP `Negotiate` challenges while preserving manual redirect control, and report the authenticated principal used in the cache key. | `CredentialSource` abstraction so the Keycloak flow never touches gokrb5 types directly |
+| `kubectl-krb_keycloak/cmd/kubectl-krb_keycloak` | Flag/env parsing, dependency wiring, exit codes. Thin — no logic worth unit-testing beyond config resolution. | — |
 
 ### 2.2 Data flow (cache miss)
 
@@ -154,7 +154,7 @@ Precedence: flag > environment variable > default. All settable as kubeconfig `e
   metadata (no refresh/access tokens).
 - **Platform caveat (documented, not solved in v1)** — gokrb5 reads *file* ccaches only. macOS
   (`API:`/`KCM:` ccache) and Windows (LSA) defaults are not file-based; users there must
-  `export KRB5CCNAME=FILE:...` + `kinit -c`, or use keytab mode. The README will cover this
+  `export KRB5CCNAME=FILE:...` + `kinit -c`, or use keytab mode. The README covers this
   prominently (see Q5).
 
 ### 2.6 Testing strategy
@@ -171,49 +171,49 @@ Precedence: flag > environment variable > default. All settable as kubeconfig `e
 - `execcred`: golden-file round-trips of request parsing (stdin and `KUBERNETES_EXEC_INFO`) and
   response encoding, including apiVersion mismatch handling.
 
-## 3. Proposed project layout
+## 3. Project layout
 
-Single Go module at the repo root; one `cmd/` directory per plugin; plugin-specific logic under
-`internal/<plugin>/`; genuinely shared code promoted to `internal/shared/` only when a second
-plugin needs it (see Q1).
+One Go module per plugin. A root Go workspace makes local multi-module commands convenient without
+coupling plugin dependency graphs (see Q1).
 
 ```
 kubectl-plugins/
-├── go.mod                                # module github.com/pliu/kubectl-plugins
-├── Makefile                              # build/test/lint; cross-compile targets
+├── go.work                               # local workspace containing plugin modules
+├── Makefile                              # delegates local targets to each plugin
 ├── README.md                             # repo index: one section per plugin
 ├── DESIGN.md                             # this document
-├── cmd/
-│   └── kubectl-krb_keycloak/
-│       └── main.go
-├── internal/
-│   └── krbkeycloak/
-│       ├── execcred/       execcred.go  execcred_test.go
-│       ├── tokencache/     cache.go     cache_test.go
-│       ├── jwt/            jwt.go       jwt_test.go
-│       ├── keycloak/       flow.go      pkce.go  flow_test.go
-│       └── krb/            client.go    client_test.go
-├── docs/
+├── kubectl-krb_keycloak/
+│   ├── go.mod                            # independent plugin module
+│   ├── go.sum
+│   ├── Makefile                          # build/test/vet/cross-build targets
+│   ├── cmd/kubectl-krb_keycloak/main.go
+│   └── internal/
+│       ├── app/            config.go run.go config_test.go
+│       ├── execcred/       execcred.go execcred_test.go
+│       ├── tokencache/     cache.go cache_test.go
+│       ├── jwt/            jwt.go jwt_test.go
+│       ├── keycloak/       flow.go flow_test.go
+│       └── krb/            client.go client_test.go
+└── docs/
 │   └── kubectl-krb_keycloak.md           # full plugin README (kubeconfig stanza,
 │                                         # Keycloak client settings, krb5 prereqs)
-└── .github/workflows/ci.yml              # test + lint + cross-build matrix
 ```
 
 Release builds: `CGO_ENABLED=0` for `linux/amd64`, `darwin/arm64`, `windows/amd64` via the
-Makefile (goreleaser can be added later if the repo grows release cadence).
+plugin Makefile. No hosted workflows are included.
 
 ## 4. Milestones
 
 Each milestone is a reviewable PR that compiles and passes tests.
 
-1. **Scaffolding + ExecCredential I/O** — module, Makefile, CI; `internal/krbkeycloak/execcred`
+1. **Scaffolding + ExecCredential I/O** — module and Makefile; `internal/execcred`
    complete with tests; `main.go` wired with config parsing but a stubbed token source. The plugin
    runs end-to-end with a fake token.
 2. **Token cache + JWT parsing** — `tokencache` and `jwt` with full unit tests; cache-hit path
    works for real (a manually planted token round-trips through kubectl).
 3. **Keycloak flow (mocked transport)** — `keycloak` package: PKCE, state, redirect walk, code
    exchange, error taxonomy classes 4–6, all against `httptest`. Still no Kerberos.
-4. **Kerberos/SPNEGO integration** — `internal/krbkeycloak/krb`: ccache/keytab loading, SPNEGO
+4. **Kerberos/SPNEGO integration** — `internal/krb`: ccache/keytab loading, SPNEGO
    `Doer`, principal extraction, error classes 2–3. First real end-to-end login against a live
    Keycloak+KDC.
 5. **Hardening + docs** — TLS options, skew flag, atomic-write races, stderr message polish;
@@ -221,21 +221,16 @@ Each milestone is a reviewable PR that compiles and passes tests.
    client, PKCE `S256` required, exact redirect URI, Kerberos user federation + `gss delegation
    credential` notes), krb5.conf prerequisites, and per-platform ccache guidance.
 6. **(Optional) Integration harness** — docker-compose with Keycloak + a KDC (e.g.
-   `kerberos-kdc` image) driving the real flow in CI behind a `make integration` target.
+   `kerberos-kdc` image) driving the real flow behind a local `make integration` target.
 
 ## 5. Clarifying questions
 
 Answers to these would most change the design. Each has an assumed answer so work can proceed.
 
 1. **Module layout for a multi-plugin repo** — one Go module at the root, or a module per plugin?
-   *Assumed:* single root module (`github.com/pliu/kubectl-plugins`), `cmd/<plugin>` +
-   `internal/<plugin>/`. One `go.sum`, one CI pipeline, easy code sharing; per-plugin modules can
-   be split out later if dependency sets diverge badly.
-   *Decision (PR review):* single root module. Per-plugin modules would give each plugin an
-   independent dependency set (a CVE bump or breaking upgrade in one plugin's deps wouldn't touch
-   the others) and independently taggable versions, at the cost of a go.work setup, N `go.sum`
-   files, and friction sharing `internal/` code. Those benefits only pay off once plugins have
-   large, divergent dependency trees; splitting later is mechanical, so we start single-module.
+   *Decision (implementation):* one module per plugin, joined by a root `go.work`. This keeps CVE
+   bumps, breaking dependency upgrades, and version tags independent. Shared code can be extracted
+   deliberately if multiple plugins eventually need it.
 2. **Binary name** — exec credential plugins are invoked by client-go via kubeconfig, so the
    `kubectl-*` prefix (krew-style) isn't technically required. *Assumed:* `kubectl-krb_keycloak`
    anyway, for repo-wide naming consistency and future krew distribution; the kubeconfig `command`
