@@ -2,8 +2,8 @@
 """Minimal HTTPS mock Kubernetes API server for integration tests.
 
 Serves until it receives one kubectl request with an Authorization header,
-prints headers/body and the decoded Bearer JWT, writes a machine-readable
-record for assertions, then exits.
+writes a machine-readable record for assertions and display by run.sh, then
+exits.
 """
 
 from __future__ import annotations
@@ -101,22 +101,6 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
 
-        print("=== mock Kubernetes API server: received request ===", flush=True)
-        print(f"method: {self.command}", flush=True)
-        print(f"path: {self.path}", flush=True)
-        print("headers:", flush=True)
-        for name, value in sorted(headers.items()):
-            # Print full Authorization so the Bearer JWT is visible in logs.
-            print(f"  {name}: {value}", flush=True)
-        print("body:", flush=True)
-        if body:
-            try:
-                print(body.decode(), flush=True)
-            except UnicodeDecodeError:
-                print(repr(body), flush=True)
-        else:
-            print("(empty)", flush=True)
-
         record: dict[str, Any] = {
             "method": self.command,
             "path": self.path,
@@ -148,10 +132,6 @@ class Handler(BaseHTTPRequestHandler):
 
         record["jwt"] = jwt
         record["token"] = token
-        print("decoded JWT header:", flush=True)
-        print(json.dumps(jwt["header"], indent=2, sort_keys=True), flush=True)
-        print("decoded JWT payload:", flush=True)
-        print(json.dumps(jwt["payload"], indent=2, sort_keys=True), flush=True)
 
         groups = jwt["payload"].get("groups")
         if not isinstance(groups, list) or "/developers" not in groups:
