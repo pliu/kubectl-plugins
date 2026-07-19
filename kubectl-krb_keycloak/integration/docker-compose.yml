@@ -9,10 +9,36 @@ services:
     volumes:
       - kerberos:/kerberos
 
+  ldap:
+    build:
+      context: ldap
+    healthcheck:
+      test:
+        - CMD
+        - ldapsearch
+        - -x
+        - -H
+        - ldap://localhost:389
+        - -b
+        - dc=example,dc=test
+        - -s
+        - base
+        - (objectClass=*)
+      interval: 1s
+      timeout: 5s
+      retries: 30
+    networks:
+      default:
+        aliases:
+          - ldap.test
+
   keycloak:
     image: quay.io/keycloak/keycloak:26.3.5
     depends_on:
-      - kdc
+      kdc:
+        condition: service_started
+      ldap:
+        condition: service_healthy
     entrypoint:
       - /bin/bash
       - -ec

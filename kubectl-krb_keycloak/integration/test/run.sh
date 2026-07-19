@@ -35,6 +35,15 @@ test "$(printf '%s' "$output" | jq -r '.status.token | split(".") | length')" -e
 test "$(printf '%s' "$output" | jq -r '.status.expirationTimestamp | length > 0')" = true
 
 token=$(printf '%s' "$output" | jq -r '.status.token')
+has_developers_group=$(
+	printf '%s' "$token" | jq -Rr '
+		def decode:
+			gsub("-"; "+") | gsub("_"; "/") | @base64d | fromjson;
+		split(".")[1] | decode | .groups | index("/developers") != null
+	'
+)
+test "$has_developers_group" = true
+
 printf 'received JWT: %s\n' "$token"
 printf 'decoded JWT header and payload:\n'
 printf '%s' "$token" | jq -R '
@@ -42,4 +51,4 @@ printf '%s' "$token" | jq -R '
 		gsub("-"; "+") | gsub("_"; "/") | @base64d | fromjson;
 	split(".") | {header: (.[0] | decode), payload: (.[1] | decode)}
 '
-echo "end-to-end Kerberos, SPNEGO, Keycloak, PKCE, and ExecCredential flow passed"
+echo "end-to-end Kerberos, LDAP groups, SPNEGO, Keycloak, PKCE, and ExecCredential flow passed"

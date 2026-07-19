@@ -29,16 +29,17 @@ make build
 install -m 0755 kubectl-krb_keycloak "$HOME/.local/bin/kubectl-krb_keycloak"
 ```
 
-An opt-in end-to-end test starts an ephemeral MIT Kerberos KDC and Keycloak realm, builds the
-Linux plugin, authenticates with a generated keytab, and validates the resulting ExecCredential:
+An opt-in end-to-end test starts an ephemeral MIT Kerberos KDC, OpenLDAP directory, and Keycloak
+realm, builds the Linux plugin, authenticates with a generated keytab, and validates the resulting
+ExecCredential and its LDAP-derived group membership:
 
 ```sh
 make integration-test
 ```
 
-The integration test requires Docker with the Compose plugin. It downloads versioned Debian,
-Go, and Keycloak images on the first run and removes its containers, network, and credential
-volume when it finishes. It does not require a locally installed Kerberos client or Keycloak.
+The integration test requires Docker with the Compose plugin. It downloads versioned Debian, Go,
+and Keycloak images on the first run and removes its containers, network, and credential volume
+when it finishes. It does not require locally installed Kerberos, LDAP, or Keycloak software.
 
 `make cross-build` creates static `linux/amd64`, `darwin/arm64`, and `windows/amd64` binaries under
 `dist/`. The repository intentionally does not define hosted build or release workflows.
