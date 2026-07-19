@@ -19,6 +19,8 @@ func TestResolveCCachePath(t *testing.T) {
 		{"/tmp/cache", "", "/tmp/cache", false},
 		{"FILE:/tmp/cache", "", "/tmp/cache", false},
 		{"file:/tmp/cache", "", "/tmp/cache", false},
+		{`C:\Temp\krb5cc_alice`, "", `C:\Temp\krb5cc_alice`, false},
+		{"", `C:\Temp\krb5cc_alice`, `C:\Temp\krb5cc_alice`, false},
 		{"KCM:123", "", "", true},
 		{"API:abc", "", "", true},
 		{"FILE:", "", "", true},

@@ -176,7 +176,6 @@ func (c *Credential) Do(request *http.Request) (*http.Response, error) {
 
 func cloneForRetry(request *http.Request) (*http.Request, error) {
 	retry := request.Clone(request.Context())
-	retry.Header = request.Header.Clone()
 	if request.Body == nil {
 		return retry, nil
 	}
@@ -193,7 +192,7 @@ func cloneForRetry(request *http.Request) (*http.Request, error) {
 
 func hasNegotiateChallenge(values []string) bool {
 	for _, value := range values {
-		for _, challenge := range strings.Split(value, ",") {
+		for challenge := range strings.SplitSeq(value, ",") {
 			fields := strings.Fields(challenge)
 			if len(fields) > 0 && strings.EqualFold(fields[0], "Negotiate") {
 				return true
@@ -210,7 +209,8 @@ func resolveCCachePath(value, fallback string) (string, error) {
 	upper := strings.ToUpper(value)
 	if strings.HasPrefix(upper, "FILE:") {
 		value = value[len("FILE:"):]
-	} else if index := strings.IndexByte(value, ':'); index > 0 {
+	} else if index := strings.IndexByte(value, ':'); index > 1 {
+		// A single character before the colon is a Windows drive letter, not a cache type.
 		return "", fmt.Errorf("unsupported Kerberos credential cache type %q; gokrb5 requires a FILE: ccache", value[:index])
 	}
 	if value == "" {
