@@ -2,13 +2,16 @@ BINARY := kubectl-krb_keycloak
 CMD := ./cmd/kubectl-krb_keycloak
 DIST := dist
 
-.PHONY: build test lint cross-build clean
+.PHONY: build test integration-test lint cross-build clean
 
 build:
 	go build -trimpath -o $(BINARY) $(CMD)
 
 test:
 	go test ./...
+
+integration-test:
+	./integration/run.sh
 
 lint:
 	go vet ./...

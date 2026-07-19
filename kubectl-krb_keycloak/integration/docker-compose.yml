@@ -1,0 +1,47 @@
+services:
+  kdc:
+    build:
+      context: kdc
+    networks:
+      default:
+        aliases:
+          - kdc.krb.test
+    volumes:
+      - kerberos:/kerberos
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3.5
+    depends_on:
+      - kdc
+    entrypoint:
+      - /bin/bash
+      - -ec
+    command:
+      - |
+        until test -f /kerberos/ready; do sleep 1; done
+        exec /opt/keycloak/bin/kc.sh start-dev \
+          --hostname=http://keycloak.test:8080 \
+          --import-realm
+    environment:
+      JAVA_OPTS_APPEND: -Djava.security.krb5.conf=/etc/krb5.conf
+    networks:
+      default:
+        aliases:
+          - keycloak.test
+    volumes:
+      - ./keycloak/kubectl-krb-keycloak-e2e-realm.json:/opt/keycloak/data/import/kubectl-krb-keycloak-e2e-realm.json:ro
+      - ./kdc/krb5.conf:/etc/krb5.conf:ro
+      - kerberos:/kerberos:ro
+
+  test:
+    build:
+      context: ..
+      dockerfile: integration/test/Dockerfile
+    depends_on:
+      - keycloak
+    volumes:
+      - ./kdc/krb5.conf:/etc/krb5.conf:ro
+      - kerberos:/kerberos:ro
+
+volumes:
+  kerberos:

@@ -1,0 +1,71 @@
+{
+  "id": "kubectl-krb-keycloak-e2e",
+  "realm": "kubectl-krb-keycloak-e2e",
+  "enabled": true,
+  "sslRequired": "none",
+  "browserFlow": "browser-with-kerberos",
+  "authenticationFlows": [
+    {
+      "alias": "browser-with-kerberos",
+      "description": "Require SPNEGO so the test cannot fall back to an interactive login",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "auth-spnego",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false
+        }
+      ]
+    }
+  ],
+  "requiredActions": [
+    {
+      "alias": "VERIFY_PROFILE",
+      "name": "Verify Profile",
+      "providerId": "VERIFY_PROFILE",
+      "enabled": false,
+      "defaultAction": false,
+      "priority": 40,
+      "config": {}
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "kubectl-e2e",
+      "name": "kubectl-krb_keycloak end-to-end test",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "http://localhost:8000"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
+    }
+  ],
+  "components": {
+    "org.keycloak.storage.UserStorageProvider": [
+      {
+        "name": "kerberos",
+        "providerId": "kerberos",
+        "config": {
+          "enabled": ["true"],
+          "priority": ["0"],
+          "kerberosRealm": ["EXAMPLE.TEST"],
+          "serverPrincipal": ["HTTP/keycloak.test@EXAMPLE.TEST"],
+          "keyTab": ["/kerberos/keycloak.keytab"],
+          "allowPasswordAuthentication": ["false"],
+          "updateProfileFirstLogin": ["false"],
+          "debug": ["false"]
+        }
+      }
+    ]
+  }
+}
