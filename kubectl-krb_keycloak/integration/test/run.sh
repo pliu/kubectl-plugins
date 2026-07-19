@@ -34,4 +34,12 @@ test "$(printf '%s' "$output" | jq -r '.kind')" = 'ExecCredential'
 test "$(printf '%s' "$output" | jq -r '.status.token | split(".") | length')" -eq 3
 test "$(printf '%s' "$output" | jq -r '.status.expirationTimestamp | length > 0')" = true
 
+token=$(printf '%s' "$output" | jq -r '.status.token')
+printf 'received JWT: %s\n' "$token"
+printf 'decoded JWT header and payload:\n'
+printf '%s' "$token" | jq -R '
+	def decode:
+		gsub("-"; "+") | gsub("_"; "/") | @base64d | fromjson;
+	split(".") | {header: (.[0] | decode), payload: (.[1] | decode)}
+'
 echo "end-to-end Kerberos, SPNEGO, Keycloak, PKCE, and ExecCredential flow passed"
