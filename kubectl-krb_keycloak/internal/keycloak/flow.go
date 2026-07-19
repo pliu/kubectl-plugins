@@ -291,10 +291,10 @@ func closeResponse(response *http.Response) {
 }
 
 func safeURL(value *url.URL) string {
-	copy := *value
-	copy.RawQuery = ""
-	copy.Fragment = ""
-	return copy.String()
+	redacted := *value
+	redacted.RawQuery = ""
+	redacted.Fragment = ""
+	return redacted.String()
 }
 
 func oneLine(value string) string {

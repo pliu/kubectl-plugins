@@ -206,7 +206,6 @@ func (d *fakeNegotiateDoer) Do(request *http.Request) (*http.Response, error) {
 	closeResponse(response)
 	d.challenges.Add(1)
 	retry := request.Clone(request.Context())
-	retry.Header = request.Header.Clone()
 	retry.Header.Set("Authorization", "Negotiate test-token")
 	return d.client.Do(retry)
 }
