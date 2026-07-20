@@ -31,10 +31,15 @@ install -m 0755 kubectl-krb_keycloak "$HOME/.local/bin/kubectl-krb_keycloak"
 
 An opt-in end-to-end test starts an ephemeral MIT Kerberos KDC, OpenLDAP directory, and Keycloak
 realm, builds the Linux plugin, authenticates with a generated keytab, and validates the resulting
-ExecCredential and its LDAP-derived group membership. It then configures a real `kubectl` with the
-plugin as an exec credential provider, issues a request against a mock Kubernetes API server, and
-checks that the mock received the Bearer JWT (printing request headers, body, and the decoded
-token):
+ExecCredential and its LDAP-derived group membership. It then:
+
+1. Configures a real `kubectl` with the plugin as an exec credential provider and issues a request
+   against a mock Kubernetes API server.
+2. Invokes the plugin **standalone** (no `kubectl`), extracts the JWT from the ExecCredential
+   response, and `curl`s the same mock API with `Authorization: Bearer <token>`.
+
+Both paths check that the mock received the Bearer JWT (printing request headers, body, and the
+decoded token):
 
 ```sh
 make integration-test
@@ -43,6 +48,32 @@ make integration-test
 The integration test requires Docker with the Compose plugin. It downloads versioned Debian, Go,
 Keycloak, and kubectl binaries on the first run and removes its containers, network, and credential
 volume when it finishes. It does not require locally installed Kerberos, LDAP, Keycloak, or kubectl.
+
+## Standalone use (JWT for curl)
+
+The plugin does not require `kubectl`. When `KUBERNETES_EXEC_INFO` is unset, pipe a minimal
+`ExecCredential` request on stdin. Successful runs print only ExecCredential JSON on stdout; extract
+`status.token` and pass it as a Bearer token to the Kubernetes API:
+
+```sh
+request='{"apiVersion":"client.authentication.k8s.io/v1","kind":"ExecCredential","spec":{"interactive":false}}'
+token=$(
+  printf '%s\n' "$request" | kubectl-krb_keycloak \
+    --issuer-url=https://sso.example.com/realms/prod \
+    --client-id=kubectl \
+    --redirect-uri=http://localhost:8000 \
+    --keytab=/secure/path/kubectl.keytab \
+    --principal=alice \
+    --realm=EXAMPLE.COM \
+  | jq -r '.status.token'
+)
+curl --cacert /path/to/kubernetes-ca.pem \
+  -H "Authorization: Bearer ${token}" \
+  https://kubernetes.example.com/api
+```
+
+The same flags and environment variables apply as in the kubeconfig exec stanza. The ID token cache
+is shared with kubectl-driven runs when `--cache-dir` matches.
 
 `make cross-build` creates static `linux/amd64`, `darwin/arm64`, and `windows/amd64` binaries under
 `dist/`. The repository intentionally does not define hosted build or release workflows.

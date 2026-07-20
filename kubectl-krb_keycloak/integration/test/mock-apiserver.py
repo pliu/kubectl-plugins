@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Minimal HTTPS mock Kubernetes API server for integration tests.
 
-Serves until it receives one kubectl request with an Authorization header,
-writes a machine-readable record for assertions and display by run.sh, then
-exits.
+Serves until it receives one authenticated request with an Authorization
+header (from kubectl or a direct curl), writes a machine-readable record for
+assertions and display by run.sh, then exits.
 """
 
 from __future__ import annotations

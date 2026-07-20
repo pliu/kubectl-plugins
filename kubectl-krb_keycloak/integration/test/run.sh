@@ -17,6 +17,50 @@ run_plugin() {
 		--realm=EXAMPLE.TEST
 }
 
+# Start the mock API server in the background; sets mock_pid.
+# Usage: start_mock <record-path>
+start_mock() {
+	record_path=$1
+	python3 /usr/local/bin/mock-apiserver.py \
+		--listen 127.0.0.1:6443 \
+		--cert "$workdir/tls.crt" \
+		--key "$workdir/tls.key" \
+		--record "$record_path" &
+	mock_pid=$!
+
+	# Wait until the mock server is listening (TCP accept), without consuming an HTTP request.
+	attempt=0
+	until python3 - <<'PY' 2>/dev/null
+import socket, sys
+with socket.create_connection(("127.0.0.1", 6443), timeout=1) as s:
+    sys.exit(0)
+PY
+	do
+		attempt=$((attempt + 1))
+		if test "$attempt" -ge 30; then
+			echo "mock API server did not become ready" >&2
+			exit 1
+		fi
+		# Fail fast if the mock process already exited.
+		if ! kill -0 "$mock_pid" 2>/dev/null; then
+			wait "$mock_pid" || true
+			echo "mock API server exited before accepting connections" >&2
+			exit 1
+		fi
+		sleep 0.2
+	done
+}
+
+# Assert the mock recorded a successful Bearer JWT request with the /developers group.
+assert_mock_record() {
+	record_path=$1
+	test -f "$record_path"
+	test "$(jq -r '.ok' "$record_path")" = true
+	test "$(jq -r '.authorization | startswith("Bearer ")' "$record_path")" = true
+	test "$(jq -r '.jwt.payload.groups | index("/developers") != null' "$record_path")" = true
+	test "$(jq -r '.token | split(".") | length' "$record_path")" -eq 3
+}
+
 attempt=0
 until curl --fail --silent "$discovery" >/dev/null; do
 	attempt=$((attempt + 1))
@@ -58,8 +102,7 @@ printf '%s' "$token" | jq -R '
 '
 echo "phase 1 passed: Kerberos, LDAP groups, SPNEGO, Keycloak, PKCE, and ExecCredential"
 
-# --- Phase 2: real kubectl + exec plugin -> mock Kubernetes API server ---
-
+# Shared TLS material and mock lifecycle for phases that hit a mock API server.
 workdir=$(mktemp -d)
 mock_pid=""
 
@@ -79,35 +122,10 @@ openssl req -x509 -newkey rsa:2048 \
 	-subj '/CN=127.0.0.1' \
 	>/dev/null 2>&1
 
-record="$workdir/request.json"
-python3 /usr/local/bin/mock-apiserver.py \
-	--listen 127.0.0.1:6443 \
-	--cert "$workdir/tls.crt" \
-	--key "$workdir/tls.key" \
-	--record "$record" &
-mock_pid=$!
+# --- Phase 2: real kubectl + exec plugin -> mock Kubernetes API server ---
 
-# Wait until the mock server is listening (TCP accept), without consuming an HTTP request.
-attempt=0
-until python3 - <<'PY' 2>/dev/null
-import socket, sys
-with socket.create_connection(("127.0.0.1", 6443), timeout=1) as s:
-    sys.exit(0)
-PY
-do
-	attempt=$((attempt + 1))
-	if test "$attempt" -ge 30; then
-		echo "mock API server did not become ready" >&2
-		exit 1
-	fi
-	# Fail fast if the mock process already exited.
-	if ! kill -0 "$mock_pid" 2>/dev/null; then
-		wait "$mock_pid" || true
-		echo "mock API server exited before accepting connections" >&2
-		exit 1
-	fi
-	sleep 0.2
-done
+record="$workdir/request.json"
+start_mock "$record"
 
 kubeconfig="$workdir/kubeconfig"
 cat >"$kubeconfig" <<EOF
@@ -157,14 +175,48 @@ mock_status=$?
 mock_pid=""
 test "$mock_status" -eq 0
 
-test -f "$record"
-test "$(jq -r '.ok' "$record")" = true
-test "$(jq -r '.authorization | startswith("Bearer ")' "$record")" = true
-test "$(jq -r '.jwt.payload.groups | index("/developers") != null' "$record")" = true
-test "$(jq -r '.token | split(".") | length' "$record")" -eq 3
+assert_mock_record "$record"
 
-echo "=== recorded request from mock API server ==="
+echo "=== recorded request from mock API server (kubectl) ==="
 jq '.' "$record"
 
 echo "phase 2 passed: kubectl invoked the plugin and sent the JWT Bearer token to the mock API server"
-echo "end-to-end Kerberos, LDAP groups, SPNEGO, Keycloak, PKCE, ExecCredential, and kubectl flow passed"
+
+# --- Phase 3: standalone plugin (no kubectl) -> JWT -> curl mock API server ---
+#
+# Demonstrates that kubectl-krb_keycloak can be invoked outside kubectl: pipe an
+# ExecCredential request, extract status.token, and use it as a Bearer token when
+# curling the Kubernetes API directly.
+
+record_curl="$workdir/request-curl.json"
+start_mock "$record_curl"
+
+echo "invoking plugin standalone (no kubectl) and curling the mock API with the JWT"
+standalone_output=$(
+	printf '%s\n' "$request" | run_plugin
+)
+standalone_token=$(printf '%s' "$standalone_output" | jq -r '.status.token')
+test "$(printf '%s' "$standalone_token" | jq -Rr 'split(".") | length')" -eq 3
+
+curl_output=$(
+	curl --fail --silent --insecure \
+		-H "Authorization: Bearer ${standalone_token}" \
+		https://127.0.0.1:6443/api
+)
+printf 'curl /api response: %s\n' "$curl_output"
+test "$(printf '%s' "$curl_output" | jq -r '.kind')" = 'APIVersions'
+
+wait "$mock_pid"
+mock_status=$?
+mock_pid=""
+test "$mock_status" -eq 0
+
+assert_mock_record "$record_curl"
+# Confirm the mock saw the same JWT the standalone plugin returned.
+test "$(jq -r '.token' "$record_curl")" = "$standalone_token"
+
+echo "=== recorded request from mock API server (standalone curl) ==="
+jq '.' "$record_curl"
+
+echo "phase 3 passed: standalone plugin JWT used with curl against the mock API server"
+echo "end-to-end Kerberos, LDAP groups, SPNEGO, Keycloak, PKCE, ExecCredential, kubectl, and standalone curl flows passed"
