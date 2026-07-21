@@ -27,11 +27,10 @@ until curl --fail --silent "$discovery" >/dev/null; do
 	sleep 1
 done
 
-# --- Phase 1: direct plugin ExecCredential exchange (existing coverage) ---
+# --- Phase 1: standalone plugin invocation (existing coverage) ---
 
-request='{"apiVersion":"client.authentication.k8s.io/v1","kind":"ExecCredential","spec":{"interactive":false}}'
 output=$(
-	printf '%s\n' "$request" | run_plugin
+	run_plugin
 )
 
 test "$(printf '%s' "$output" | jq -r '.apiVersion')" = 'client.authentication.k8s.io/v1'

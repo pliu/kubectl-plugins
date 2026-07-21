@@ -20,7 +20,7 @@ func run() int {
 		return 0
 	}
 	if err == nil {
-		err = app.Run(context.Background(), config, os.Stdin, os.Getenv("KUBERNETES_EXEC_INFO"), os.Stdout, os.Stderr)
+		err = app.Run(context.Background(), config, os.Stdout, os.Stderr)
 	}
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "kubectl-krb_keycloak: %s\n", err)

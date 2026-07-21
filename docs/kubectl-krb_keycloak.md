@@ -136,8 +136,10 @@ contexts:
 current-context: production
 ```
 
-The plugin accepts both `interactive: true` and `interactive: false` in the incoming ExecCredential
-request but remains non-interactive in either case.
+The plugin always emits `client.authentication.k8s.io/v1` credentials and does not inspect
+`KUBERNETES_EXEC_INFO` or read stdin. This also makes it possible to invoke the configured command
+directly for diagnostics; no ExecCredential request needs to be piped to it. The plugin remains
+non-interactive.
 
 ## Configuration
 
