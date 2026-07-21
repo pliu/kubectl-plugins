@@ -15,11 +15,8 @@ import (
 	"github.com/pliu/kubectl-plugins/kubectl-krb_keycloak/internal/tokencache"
 )
 
-// Run executes one credential request. stdout is reserved exclusively for ExecCredential JSON.
-func Run(ctx context.Context, config Config, stdin io.Reader, execInfo string, stdout, stderr io.Writer) error {
-	if _, err := execcred.Read(stdin, execInfo); err != nil {
-		return err
-	}
+// Run obtains one credential. stdout is reserved exclusively for ExecCredential JSON.
+func Run(ctx context.Context, config Config, stdout, stderr io.Writer) error {
 	if config.InsecureSkipTLSVerify {
 		_, _ = fmt.Fprintln(stderr, "warning: Keycloak TLS certificate verification is disabled")
 	}

@@ -3,53 +3,11 @@ package execcred
 import (
 	"bytes"
 	"encoding/json"
-	"os"
-	"strings"
 	"testing"
 	"time"
 
 	clientauthenticationv1 "k8s.io/client-go/pkg/apis/clientauthentication/v1"
 )
-
-const validRequest = `{"apiVersion":"client.authentication.k8s.io/v1","kind":"ExecCredential","spec":{"interactive":false}}`
-
-func TestReadFromEnvironmentOrStdin(t *testing.T) {
-	t.Parallel()
-	request, err := Read(strings.NewReader("invalid"), validRequest)
-	if err != nil {
-		t.Fatalf("Read() env error = %v", err)
-	}
-	if request.Spec.Interactive {
-		t.Error("Interactive = true, want false")
-	}
-	request, err = Read(strings.NewReader(validRequest), "")
-	if err != nil || request.APIVersion != APIVersion {
-		t.Fatalf("Read() stdin = %#v, %v", request, err)
-	}
-}
-
-func TestReadRejectsInvalidInput(t *testing.T) {
-	t.Parallel()
-	tests := []string{
-		"",
-		"not-json",
-		validRequest + validRequest,
-		`{"apiVersion":"client.authentication.k8s.io/v1beta1","kind":"ExecCredential"}`,
-		`{"apiVersion":"client.authentication.k8s.io/v1","kind":"Other"}`,
-	}
-	for _, input := range tests {
-		if _, err := Read(strings.NewReader(input), ""); err == nil {
-			t.Errorf("Read(%q) error = nil", input)
-		}
-	}
-}
-
-func TestReadFailsFastForTerminalStdin(t *testing.T) {
-	t.Parallel()
-	if _, err := Read(terminalReader{}, ""); err == nil || !strings.Contains(err.Error(), "pipe an ExecCredential") {
-		t.Fatalf("Read() terminal error = %v", err)
-	}
-}
 
 func TestWrite(t *testing.T) {
 	t.Parallel()
@@ -69,22 +27,3 @@ func TestWrite(t *testing.T) {
 		t.Errorf("expiration = %v, want %v", got.Status.ExpirationTimestamp.Time, want)
 	}
 }
-
-type terminalReader struct{}
-
-func (terminalReader) Read([]byte) (int, error) {
-	panic("terminal input must not be read")
-}
-
-func (terminalReader) Stat() (os.FileInfo, error) {
-	return terminalInfo{}, nil
-}
-
-type terminalInfo struct{}
-
-func (terminalInfo) Name() string       { return "terminal" }
-func (terminalInfo) Size() int64        { return 0 }
-func (terminalInfo) Mode() os.FileMode  { return os.ModeCharDevice }
-func (terminalInfo) ModTime() time.Time { return time.Time{} }
-func (terminalInfo) IsDir() bool        { return false }
-func (terminalInfo) Sys() any           { return nil }
