@@ -91,15 +91,19 @@ name fails immediately with a message explaining the limitation.
 Keytab mode obtains a TGT directly and does not require `kinit` or a ccache:
 
 ```yaml
-args:
-  - --keytab=/secure/path/kubectl.keytab
-  - --principal=svc-kubectl
-  - --realm=EXAMPLE.COM
+env:
+  - name: KUBECTL_KRB_KEYCLOAK_KEYTAB
+    value: /secure/path/kubectl.keytab
+  - name: KUBECTL_KRB_KEYCLOAK_PRINCIPAL
+    value: svc-kubectl
+  - name: KUBECTL_KRB_KEYCLOAK_REALM
+    value: EXAMPLE.COM
 ```
 
-The principal flag must omit `@REALM`; pass the realm separately. Protect the keytab using operating
-system file permissions. Keytab login is deferred until a network authentication is required, so a
-valid ID token cache hit does not contact the KDC.
+Set all three variables together. The principal must omit `@REALM`; configure the realm separately.
+When they are set, keytab mode takes precedence over `--ccache` and `KRB5CCNAME`. Protect the keytab
+using operating system file permissions. Keytab login is deferred until a network authentication is
+required, so a valid ID token cache hit does not contact the KDC.
 
 ## Kubeconfig
 
@@ -143,7 +147,8 @@ non-interactive.
 
 ## Configuration
 
-Flags take precedence over environment variables, which take precedence over defaults.
+Flags take precedence over environment variables, which take precedence over defaults. The keytab
+settings are environment-only and, when set, take precedence over the credential-cache settings.
 
 | Flag | Environment variable | Default |
 |---|---|---|
@@ -155,9 +160,9 @@ Flags take precedence over environment variables, which take precedence over def
 | `--expiry-skew` | `KUBECTL_KRB_KEYCLOAK_EXPIRY_SKEW` | `60s` |
 | `--krb5-conf` | `KRB5_CONFIG` | `/etc/krb5.conf` |
 | `--ccache` | `KRB5CCNAME` | temporary `krb5cc_<uid>` file |
-| `--keytab` | `KUBECTL_KRB_KEYCLOAK_KEYTAB` | unset |
-| `--realm` | `KUBECTL_KRB_KEYCLOAK_REALM` | unset |
-| `--principal` | `KUBECTL_KRB_KEYCLOAK_PRINCIPAL` | unset |
+| none | `KUBECTL_KRB_KEYCLOAK_KEYTAB` | unset |
+| none | `KUBECTL_KRB_KEYCLOAK_REALM` | unset |
+| none | `KUBECTL_KRB_KEYCLOAK_PRINCIPAL` | unset |
 | `--ca-file` | `KUBECTL_KRB_KEYCLOAK_CA_FILE` | system trust roots only |
 | `--insecure-skip-tls-verify` | none | `false` |
 

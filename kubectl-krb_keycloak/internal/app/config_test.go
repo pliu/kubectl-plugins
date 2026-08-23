@@ -32,6 +32,49 @@ func TestParseConfigPrecedenceAndDefaults(t *testing.T) {
 	}
 }
 
+func TestParseConfigKeytabEnvironmentTakesPrecedenceOverCCacheFlag(t *testing.T) {
+	t.Parallel()
+	environment := map[string]string{
+		"KUBECTL_KRB_KEYCLOAK_KEYTAB":    "~/alice.keytab",
+		"KUBECTL_KRB_KEYCLOAK_PRINCIPAL": " alice ",
+		"KUBECTL_KRB_KEYCLOAK_REALM":     " EXAMPLE.COM ",
+	}
+	config, err := ParseConfig([]string{
+		"--issuer-url=https://sso.example",
+		"--client-id=kubectl",
+		"--ccache=FILE:~/tickets",
+	}, func(key string) (string, bool) {
+		value, ok := environment[key]
+		return value, ok
+	}, io.Discard)
+	if err != nil {
+		t.Fatalf("ParseConfig() error = %v", err)
+	}
+	if config.Keytab == "" || config.Principal != "alice" || config.Realm != "EXAMPLE.COM" {
+		t.Fatalf("keytab config = %#v", config)
+	}
+	if config.CCache == "" {
+		t.Fatal("ccache flag was not retained for credential-source selection")
+	}
+}
+
+func TestParseConfigRejectsIncompleteKeytabEnvironment(t *testing.T) {
+	t.Parallel()
+	for _, environment := range []map[string]string{
+		{"KUBECTL_KRB_KEYCLOAK_KEYTAB": "/secure/alice.keytab"},
+		{"KUBECTL_KRB_KEYCLOAK_PRINCIPAL": "alice"},
+		{"KUBECTL_KRB_KEYCLOAK_REALM": "EXAMPLE.COM"},
+	} {
+		lookup := func(key string) (string, bool) {
+			value, ok := environment[key]
+			return value, ok
+		}
+		if _, err := ParseConfig([]string{"--issuer-url=https://sso.example", "--client-id=x"}, lookup, io.Discard); err == nil {
+			t.Errorf("ParseConfig() with environment %v error = nil", environment)
+		}
+	}
+}
+
 func TestParseConfigErrors(t *testing.T) {
 	t.Parallel()
 	env := func(string) (string, bool) { return "", false }
@@ -40,6 +83,7 @@ func TestParseConfigErrors(t *testing.T) {
 		{"--issuer-url=https://sso.example", "--client-id=x", "--expiry-skew=nope"},
 		{"--issuer-url=https://sso.example", "--client-id=x", "--keytab=file"},
 		{"--issuer-url=https://sso.example", "--client-id=x", "--principal=alice"},
+		{"--issuer-url=https://sso.example", "--client-id=x", "--realm=EXAMPLE.COM"},
 		{"--issuer-url=https://sso.example", "--client-id=x", "positional"},
 	} {
 		if _, err := ParseConfig(args, env, io.Discard); err == nil {

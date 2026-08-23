@@ -108,10 +108,10 @@ func New(krbConfig Config, httpClient *http.Client) (*Credential, error) {
 
 	if krbConfig.Keytab != "" {
 		if krbConfig.Principal == "" || krbConfig.Realm == "" {
-			return nil, errors.New("keytab mode requires --principal and --realm")
+			return nil, errors.New("keytab mode requires a principal and realm")
 		}
 		if strings.Contains(krbConfig.Principal, "@") {
-			return nil, errors.New("--principal must not include a realm; pass it separately with --realm")
+			return nil, errors.New("keytab principal must not include a realm; configure the realm separately")
 		}
 		kt, err := keytab.Load(krbConfig.Keytab)
 		if err != nil {
@@ -125,7 +125,7 @@ func New(krbConfig Config, httpClient *http.Client) (*Credential, error) {
 		}, nil
 	}
 	if krbConfig.Principal != "" || krbConfig.Realm != "" {
-		return nil, errors.New("--principal and --realm are only valid with --keytab")
+		return nil, errors.New("keytab principal and realm require a keytab")
 	}
 
 	ccachePath, err := resolveCCachePath(krbConfig.CCache, defaultCCachePath())

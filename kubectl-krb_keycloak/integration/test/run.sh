@@ -5,16 +5,16 @@ issuer=http://keycloak.test:8080/realms/kubectl-krb-keycloak-e2e
 discovery=$issuer/.well-known/openid-configuration
 
 run_plugin() {
-	kubectl-krb_keycloak \
+	KUBECTL_KRB_KEYCLOAK_KEYTAB=/kerberos/alice.keytab \
+	KUBECTL_KRB_KEYCLOAK_PRINCIPAL=alice \
+	KUBECTL_KRB_KEYCLOAK_REALM=EXAMPLE.TEST \
+		kubectl-krb_keycloak \
 		--issuer-url="$issuer" \
 		--client-id=kubectl-e2e \
 		--redirect-uri=http://localhost:8000 \
 		--scope='openid profile email' \
 		--cache-dir=/tmp/token-cache \
-		--krb5-conf=/etc/krb5.conf \
-		--keytab=/kerberos/alice.keytab \
-		--principal=alice \
-		--realm=EXAMPLE.TEST
+		--krb5-conf=/etc/krb5.conf
 }
 
 attempt=0
@@ -132,9 +132,13 @@ users:
           - --scope=openid profile email
           - --cache-dir=/tmp/token-cache
           - --krb5-conf=/etc/krb5.conf
-          - --keytab=/kerberos/alice.keytab
-          - --principal=alice
-          - --realm=EXAMPLE.TEST
+        env:
+          - name: KUBECTL_KRB_KEYCLOAK_KEYTAB
+            value: /kerberos/alice.keytab
+          - name: KUBECTL_KRB_KEYCLOAK_PRINCIPAL
+            value: alice
+          - name: KUBECTL_KRB_KEYCLOAK_REALM
+            value: EXAMPLE.TEST
 contexts:
   - name: mock
     context:

@@ -4,8 +4,32 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestNewPrefersKeytabOverCCache(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	krb5Config := filepath.Join(dir, "krb5.conf")
+	if err := os.WriteFile(krb5Config, []byte("[libdefaults]\n default_realm = EXAMPLE.COM\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	httpClient, err := NewHTTPClient(HTTPConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(Config{
+		KRB5Config: krb5Config,
+		CCache:     filepath.Join(dir, "missing.ccache"),
+		Keytab:     filepath.Join(dir, "missing.keytab"),
+		Principal:  "alice",
+		Realm:      "EXAMPLE.COM",
+	}, httpClient)
+	if err == nil || !strings.Contains(err.Error(), "load Kerberos keytab") {
+		t.Fatalf("New() error = %v; want keytab load error", err)
+	}
+}
 
 func TestResolveCCachePath(t *testing.T) {
 	t.Parallel()

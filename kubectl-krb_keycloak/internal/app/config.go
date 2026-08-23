@@ -32,7 +32,8 @@ type Config struct {
 // Environment provides testable environment lookup.
 type Environment func(string) (string, bool)
 
-// ParseConfig applies flag > environment > default precedence.
+// ParseConfig applies flag > environment > default precedence, except that keytab credentials are
+// configured only through environment variables and take precedence over ccache configuration.
 func ParseConfig(args []string, lookup Environment, output io.Writer) (Config, error) {
 	if lookup == nil {
 		lookup = os.LookupEnv
@@ -48,7 +49,11 @@ func ParseConfig(args []string, lookup Environment, output io.Writer) (Config, e
 		return fallback
 	}
 
-	config := Config{}
+	config := Config{
+		Keytab:    value("KUBECTL_KRB_KEYCLOAK_KEYTAB", ""),
+		Realm:     value("KUBECTL_KRB_KEYCLOAK_REALM", ""),
+		Principal: value("KUBECTL_KRB_KEYCLOAK_PRINCIPAL", ""),
+	}
 	expirySkew := value("KUBECTL_KRB_KEYCLOAK_EXPIRY_SKEW", "60s")
 	flags := flag.NewFlagSet("kubectl-krb_keycloak", flag.ContinueOnError)
 	flags.SetOutput(output)
@@ -60,9 +65,6 @@ func ParseConfig(args []string, lookup Environment, output io.Writer) (Config, e
 	flags.StringVar(&expirySkew, "expiry-skew", expirySkew, "duration before expiry at which cache entries become stale")
 	flags.StringVar(&config.KRB5Config, "krb5-conf", value("KRB5_CONFIG", "/etc/krb5.conf"), "krb5.conf path")
 	flags.StringVar(&config.CCache, "ccache", value("KRB5CCNAME", ""), "FILE credential cache path")
-	flags.StringVar(&config.Keytab, "keytab", value("KUBECTL_KRB_KEYCLOAK_KEYTAB", ""), "keytab path")
-	flags.StringVar(&config.Realm, "realm", value("KUBECTL_KRB_KEYCLOAK_REALM", ""), "Kerberos realm for keytab mode")
-	flags.StringVar(&config.Principal, "principal", value("KUBECTL_KRB_KEYCLOAK_PRINCIPAL", ""), "Kerberos principal for keytab mode, without realm")
 	flags.StringVar(&config.CAFile, "ca-file", value("KUBECTL_KRB_KEYCLOAK_CA_FILE", ""), "additional PEM CA bundle")
 	flags.BoolVar(&config.InsecureSkipTLSVerify, "insecure-skip-tls-verify", false, "disable Keycloak TLS certificate verification (unsafe)")
 	if err := flags.Parse(args); err != nil {
@@ -92,10 +94,10 @@ func ParseConfig(args []string, lookup Environment, output io.Writer) (Config, e
 		return Config{}, fmt.Errorf("--expiry-skew must be a non-negative duration, got %q", expirySkew)
 	}
 	if config.Keytab != "" && (config.Principal == "" || config.Realm == "") {
-		return Config{}, errors.New("--keytab requires --principal and --realm")
+		return Config{}, errors.New("KUBECTL_KRB_KEYCLOAK_KEYTAB requires KUBECTL_KRB_KEYCLOAK_PRINCIPAL and KUBECTL_KRB_KEYCLOAK_REALM")
 	}
 	if config.Keytab == "" && (config.Principal != "" || config.Realm != "") {
-		return Config{}, errors.New("--principal and --realm require --keytab")
+		return Config{}, errors.New("KUBECTL_KRB_KEYCLOAK_PRINCIPAL and KUBECTL_KRB_KEYCLOAK_REALM require KUBECTL_KRB_KEYCLOAK_KEYTAB")
 	}
 
 	for name, path := range map[string]*string{
