@@ -95,12 +95,12 @@ env:
   - name: KUBECTL_KRB_KEYCLOAK_KEYTAB
     value: /secure/path/kubectl.keytab
   - name: KUBECTL_KRB_KEYCLOAK_PRINCIPAL
-    value: svc-kubectl
-  - name: KUBECTL_KRB_KEYCLOAK_REALM
-    value: EXAMPLE.COM
+    value: svc-kubectl@EXAMPLE.COM
 ```
 
-Set all three variables together. The principal must omit `@REALM`; configure the realm separately.
+Set both variables together. The principal is the full client name, `name@REALM`. A host component
+stays in the name, as in `svc/host.example.com@EXAMPLE.COM`. The plugin splits on the first `@`
+before calling gokrb5.
 When they are set, keytab mode takes precedence over `--ccache` and `KRB5CCNAME`. Protect the keytab
 using operating system file permissions. Keytab login is deferred until a network authentication is
 required, so a valid ID token cache hit does not contact the KDC.
@@ -161,8 +161,7 @@ settings are environment-only and, when set, take precedence over the credential
 | `--krb5-conf` | `KRB5_CONFIG` | `/etc/krb5.conf` |
 | `--ccache` | `KRB5CCNAME` | temporary `krb5cc_<uid>` file |
 | none | `KUBECTL_KRB_KEYCLOAK_KEYTAB` | unset |
-| none | `KUBECTL_KRB_KEYCLOAK_REALM` | unset |
-| none | `KUBECTL_KRB_KEYCLOAK_PRINCIPAL` | unset |
+| none | `KUBECTL_KRB_KEYCLOAK_PRINCIPAL` | unset; keytab mode requires `name@REALM` |
 | `--ca-file` | `KUBECTL_KRB_KEYCLOAK_CA_FILE` | system trust roots only |
 | `--insecure-skip-tls-verify` | none | `false` |
 
@@ -182,7 +181,7 @@ verifier of record against the issuer's JWKS.
 ## Troubleshooting
 
 - **No valid Kerberos ticket / TGT:** run `kinit`, confirm `KRB5CCNAME` points to a file cache, and
-  inspect it with `klist -c`. In keytab mode, confirm the principal, realm, keytab permissions, KDC,
+  inspect it with `klist -c`. In keytab mode, confirm the `name@REALM` principal, keytab permissions, KDC,
   DNS, and clock synchronization.
 - **SPNEGO rejected:** verify Keycloak's Kerberos federation provider, the `HTTP/<keycloak-host>`
   service principal, Keycloak keytab, and browser authentication flow.

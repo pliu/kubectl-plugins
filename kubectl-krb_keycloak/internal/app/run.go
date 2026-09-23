@@ -27,12 +27,19 @@ func Run(ctx context.Context, config Config, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	principal, realm := "", ""
+	if config.Principal != "" {
+		principal, realm, err = splitPrincipal(config.Principal)
+		if err != nil {
+			return err
+		}
+	}
 	credential, err := krb.New(krb.Config{
 		KRB5Config: config.KRB5Config,
 		CCache:     config.CCache,
 		Keytab:     config.Keytab,
-		Principal:  config.Principal,
-		Realm:      config.Realm,
+		Principal:  principal,
+		Realm:      realm,
 	}, httpClient)
 	if err != nil {
 		return err

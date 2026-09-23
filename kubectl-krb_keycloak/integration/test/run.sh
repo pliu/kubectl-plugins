@@ -6,8 +6,7 @@ discovery=$issuer/.well-known/openid-configuration
 
 run_plugin() {
 	KUBECTL_KRB_KEYCLOAK_KEYTAB=/kerberos/alice.keytab \
-	KUBECTL_KRB_KEYCLOAK_PRINCIPAL=alice \
-	KUBECTL_KRB_KEYCLOAK_REALM=EXAMPLE.TEST \
+	KUBECTL_KRB_KEYCLOAK_PRINCIPAL=alice@EXAMPLE.TEST \
 		kubectl-krb_keycloak \
 		--issuer-url="$issuer" \
 		--client-id=kubectl-e2e \
@@ -136,9 +135,7 @@ users:
           - name: KUBECTL_KRB_KEYCLOAK_KEYTAB
             value: /kerberos/alice.keytab
           - name: KUBECTL_KRB_KEYCLOAK_PRINCIPAL
-            value: alice
-          - name: KUBECTL_KRB_KEYCLOAK_REALM
-            value: EXAMPLE.TEST
+            value: alice@EXAMPLE.TEST
 contexts:
   - name: mock
     context:

@@ -36,8 +36,7 @@ func TestParseConfigKeytabEnvironmentTakesPrecedenceOverCCacheFlag(t *testing.T)
 	t.Parallel()
 	environment := map[string]string{
 		"KUBECTL_KRB_KEYCLOAK_KEYTAB":    "~/alice.keytab",
-		"KUBECTL_KRB_KEYCLOAK_PRINCIPAL": " alice ",
-		"KUBECTL_KRB_KEYCLOAK_REALM":     " EXAMPLE.COM ",
+		"KUBECTL_KRB_KEYCLOAK_PRINCIPAL": " alice @ EXAMPLE.COM ",
 	}
 	config, err := ParseConfig([]string{
 		"--issuer-url=https://sso.example",
@@ -50,11 +49,27 @@ func TestParseConfigKeytabEnvironmentTakesPrecedenceOverCCacheFlag(t *testing.T)
 	if err != nil {
 		t.Fatalf("ParseConfig() error = %v", err)
 	}
-	if config.Keytab == "" || config.Principal != "alice" || config.Realm != "EXAMPLE.COM" {
+	if config.Keytab == "" || config.Principal != "alice@EXAMPLE.COM" {
 		t.Fatalf("keytab config = %#v", config)
 	}
 	if config.CCache == "" {
 		t.Fatal("ccache flag was not retained for credential-source selection")
+	}
+
+	hostConfig, err := ParseConfig([]string{"--issuer-url=https://sso.example", "--client-id=kubectl"}, func(key string) (string, bool) {
+		if key == "KUBECTL_KRB_KEYCLOAK_KEYTAB" {
+			return "/secure/svc.keytab", true
+		}
+		if key == "KUBECTL_KRB_KEYCLOAK_PRINCIPAL" {
+			return "svc/host.example.com@EXAMPLE.COM", true
+		}
+		return "", false
+	}, io.Discard)
+	if err != nil {
+		t.Fatalf("ParseConfig() host principal error = %v", err)
+	}
+	if hostConfig.Principal != "svc/host.example.com@EXAMPLE.COM" {
+		t.Fatalf("host principal = %q", hostConfig.Principal)
 	}
 }
 
@@ -62,8 +77,11 @@ func TestParseConfigRejectsIncompleteKeytabEnvironment(t *testing.T) {
 	t.Parallel()
 	for _, environment := range []map[string]string{
 		{"KUBECTL_KRB_KEYCLOAK_KEYTAB": "/secure/alice.keytab"},
-		{"KUBECTL_KRB_KEYCLOAK_PRINCIPAL": "alice"},
-		{"KUBECTL_KRB_KEYCLOAK_REALM": "EXAMPLE.COM"},
+		{"KUBECTL_KRB_KEYCLOAK_PRINCIPAL": "alice@EXAMPLE.COM"},
+		{"KUBECTL_KRB_KEYCLOAK_KEYTAB": "/secure/alice.keytab", "KUBECTL_KRB_KEYCLOAK_PRINCIPAL": "alice"},
+		{"KUBECTL_KRB_KEYCLOAK_KEYTAB": "/secure/alice.keytab", "KUBECTL_KRB_KEYCLOAK_PRINCIPAL": "@EXAMPLE.COM"},
+		{"KUBECTL_KRB_KEYCLOAK_KEYTAB": "/secure/alice.keytab", "KUBECTL_KRB_KEYCLOAK_PRINCIPAL": "alice@"},
+		{"KUBECTL_KRB_KEYCLOAK_KEYTAB": "/secure/alice.keytab", "KUBECTL_KRB_KEYCLOAK_PRINCIPAL": "alice@EXAMP@LE.COM"},
 	} {
 		lookup := func(key string) (string, bool) {
 			value, ok := environment[key]

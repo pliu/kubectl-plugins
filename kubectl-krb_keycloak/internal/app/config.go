@@ -23,7 +23,6 @@ type Config struct {
 	KRB5Config            string
 	CCache                string
 	Keytab                string
-	Realm                 string
 	Principal             string
 	CAFile                string
 	InsecureSkipTLSVerify bool
@@ -51,7 +50,6 @@ func ParseConfig(args []string, lookup Environment, output io.Writer) (Config, e
 
 	config := Config{
 		Keytab:    value("KUBECTL_KRB_KEYCLOAK_KEYTAB", ""),
-		Realm:     value("KUBECTL_KRB_KEYCLOAK_REALM", ""),
 		Principal: value("KUBECTL_KRB_KEYCLOAK_PRINCIPAL", ""),
 	}
 	expirySkew := value("KUBECTL_KRB_KEYCLOAK_EXPIRY_SKEW", "60s")
@@ -78,7 +76,6 @@ func ParseConfig(args []string, lookup Environment, output io.Writer) (Config, e
 	config.ClientID = strings.TrimSpace(config.ClientID)
 	config.RedirectURI = strings.TrimSpace(config.RedirectURI)
 	config.Scope = strings.Join(strings.Fields(config.Scope), " ")
-	config.Realm = strings.TrimSpace(config.Realm)
 	config.Principal = strings.TrimSpace(config.Principal)
 	if config.IssuerURL == "" {
 		return Config{}, errors.New("--issuer-url is required (or set KUBECTL_KRB_KEYCLOAK_ISSUER_URL)")
@@ -93,11 +90,18 @@ func ParseConfig(args []string, lookup Environment, output io.Writer) (Config, e
 	if err != nil || config.ExpirySkew < 0 {
 		return Config{}, fmt.Errorf("--expiry-skew must be a non-negative duration, got %q", expirySkew)
 	}
-	if config.Keytab != "" && (config.Principal == "" || config.Realm == "") {
-		return Config{}, errors.New("KUBECTL_KRB_KEYCLOAK_KEYTAB requires KUBECTL_KRB_KEYCLOAK_PRINCIPAL and KUBECTL_KRB_KEYCLOAK_REALM")
+	if config.Keytab != "" && config.Principal == "" {
+		return Config{}, errors.New("KUBECTL_KRB_KEYCLOAK_KEYTAB requires KUBECTL_KRB_KEYCLOAK_PRINCIPAL")
 	}
-	if config.Keytab == "" && (config.Principal != "" || config.Realm != "") {
-		return Config{}, errors.New("KUBECTL_KRB_KEYCLOAK_PRINCIPAL and KUBECTL_KRB_KEYCLOAK_REALM require KUBECTL_KRB_KEYCLOAK_KEYTAB")
+	if config.Keytab == "" && config.Principal != "" {
+		return Config{}, errors.New("KUBECTL_KRB_KEYCLOAK_PRINCIPAL requires KUBECTL_KRB_KEYCLOAK_KEYTAB")
+	}
+	if config.Principal != "" {
+		name, realm, err := splitPrincipal(config.Principal)
+		if err != nil {
+			return Config{}, err
+		}
+		config.Principal = name + "@" + realm
 	}
 
 	for name, path := range map[string]*string{
@@ -128,6 +132,18 @@ func ParseConfig(args []string, lookup Environment, output io.Writer) (Config, e
 		config.CCache = prefix + expanded
 	}
 	return config, nil
+}
+
+// splitPrincipal separates a name@REALM client principal. The realm is the text after the
+// first @, so a host component stays in the name: svc/host.example.com@EXAMPLE.COM.
+func splitPrincipal(principal string) (string, string, error) {
+	name, realm, ok := strings.Cut(strings.TrimSpace(principal), "@")
+	name = strings.TrimSpace(name)
+	realm = strings.TrimSpace(realm)
+	if !ok || name == "" || realm == "" || strings.Contains(realm, "@") {
+		return "", "", errors.New("KUBECTL_KRB_KEYCLOAK_PRINCIPAL must be name@REALM")
+	}
+	return name, realm, nil
 }
 
 func expandHome(path, home string) (string, error) {

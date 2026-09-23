@@ -111,7 +111,7 @@ func New(krbConfig Config, httpClient *http.Client) (*Credential, error) {
 			return nil, errors.New("keytab mode requires a principal and realm")
 		}
 		if strings.Contains(krbConfig.Principal, "@") {
-			return nil, errors.New("keytab principal must not include a realm; configure the realm separately")
+			return nil, errors.New("keytab principal must not include a realm")
 		}
 		kt, err := keytab.Load(krbConfig.Keytab)
 		if err != nil {
