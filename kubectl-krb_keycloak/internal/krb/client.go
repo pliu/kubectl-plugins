@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -209,8 +208,7 @@ func resolveCCachePath(value, fallback string) (string, error) {
 	upper := strings.ToUpper(value)
 	if strings.HasPrefix(upper, "FILE:") {
 		value = value[len("FILE:"):]
-	} else if index := strings.IndexByte(value, ':'); index > 1 {
-		// A single character before the colon is a Windows drive letter, not a cache type.
+	} else if index := strings.IndexByte(value, ':'); index > 0 {
 		return "", fmt.Errorf("unsupported Kerberos credential cache type %q; gokrb5 requires a FILE: ccache", value[:index])
 	}
 	if value == "" {
@@ -220,15 +218,11 @@ func resolveCCachePath(value, fallback string) (string, error) {
 }
 
 func defaultCCachePath() string {
-	directory := "/tmp"
-	if runtime.GOOS == "windows" {
-		directory = os.TempDir()
-	}
 	current, err := user.Current()
 	if err == nil && current.Uid != "" {
-		return filepath.Join(directory, "krb5cc_"+current.Uid)
+		return filepath.Join("/tmp", "krb5cc_"+current.Uid)
 	}
-	return filepath.Join(directory, "krb5cc_default")
+	return filepath.Join("/tmp", "krb5cc_default")
 }
 
 func closeResponse(response *http.Response) {

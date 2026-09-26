@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -73,9 +72,6 @@ func TestCacheTreatsCorruptionAsMissAndRejectsUnsafePermissions(t *testing.T) {
 			}
 		})
 	}
-	if runtime.GOOS == "windows" {
-		return
-	}
 	if err := os.WriteFile(path, []byte(`{"id_token":"x","expires_at":"2030-01-01T00:00:00Z"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -118,9 +114,6 @@ func TestConcurrentCacheWritersProduceACompleteEntry(t *testing.T) {
 
 func assertPermissions(t *testing.T, path string, want os.FileMode) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		return
-	}
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)

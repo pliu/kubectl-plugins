@@ -20,7 +20,7 @@ URI. It caches only the short-lived ID token; access and refresh tokens are not 
 ## Build and install
 
 The plugin is an independent Go module so its dependencies and version can evolve without changing
-other plugins in this repository.
+other plugins in this repository. Supported platforms are Linux and macOS.
 
 ```sh
 cd kubectl-krb_keycloak
@@ -44,7 +44,7 @@ The integration test requires Docker with the Compose plugin. It downloads versi
 Keycloak, and kubectl binaries on the first run and removes its containers, network, and credential
 volume when it finishes. It does not require locally installed Kerberos, LDAP, Keycloak, or kubectl.
 
-`make cross-build` creates static `linux/amd64`, `darwin/arm64`, and `windows/amd64` binaries under
+`make cross-build` creates static `linux/amd64` and `darwin/arm64` binaries under
 `dist/`. The repository intentionally does not define hosted build or release workflows.
 
 ## Keycloak client configuration
@@ -73,8 +73,8 @@ and appends the standard authorization and token endpoint paths.
 
 ### File ccache
 
-By default the plugin reads `KRB5CCNAME`, then falls back to the platform temporary directory's
-`krb5cc_<uid>` file. Both plain paths and `FILE:` names are accepted.
+By default the plugin reads `KRB5CCNAME`, then falls back to `/tmp/krb5cc_<uid>`.
+Both plain paths and `FILE:` names are accepted.
 
 ```sh
 kinit alice@EXAMPLE.COM
@@ -82,7 +82,7 @@ export KRB5CCNAME=FILE:/tmp/krb5cc_alice
 kinit -c "$KRB5CCNAME" alice@EXAMPLE.COM
 ```
 
-`gokrb5` cannot read macOS `API:`/`KCM:`, Linux `KEYRING:`/`KCM:`, or Windows LSA caches. Use a
+`gokrb5` cannot read macOS `API:`/`KCM:` or Linux `KEYRING:`/`KCM:` caches. Use a
 `FILE:` cache created with an MIT Kerberos `kinit -c` command, or use keytab mode. A non-file cache
 name fails immediately with a message explaining the limitation.
 
